@@ -1,5 +1,6 @@
 <script lang="ts">
   import { shortcuts } from '$lib/actions/shortcut';
+  import { swipeFeedback } from '$lib/actions/swipe-feedback';
   import AdaptiveImage from '$lib/components/asset-viewer/adaptive-image.svelte';
   import FaceEditor from '$lib/components/asset-viewer/face-editor/face-editor.svelte';
   import OcrBoundingBox from '$lib/components/asset-viewer/ocr-bounding-box.svelte';
@@ -10,7 +11,7 @@
   import { boundingBoxesArray } from '$lib/stores/people.store';
   import { SlideshowState, slideshowLookCssMapping, slideshowStore } from '$lib/stores/slideshow.store';
   import { photoZoomState } from '$lib/stores/zoom-image.store';
-  import { handlePromiseError } from '$lib/utils';
+  import { getAssetUrlForKind, handlePromiseError } from '$lib/utils';
   import { canCopyImageToClipboard, copyImageToClipboard } from '$lib/utils/asset-utils';
   import { handleError } from '$lib/utils/handle-error';
   import { getOcrBoundingBoxes } from '$lib/utils/ocr-utils';
@@ -26,6 +27,7 @@
     element?: HTMLDivElement;
     sharedLink?: SharedLinkResponseDto;
     onReady?: () => void;
+    onSwipe?: (direction: 'left' | 'right') => void;
     copyImage?: () => Promise<void>;
     zoomToggle?: () => void;
   }
@@ -35,6 +37,7 @@
     element = $bindable(),
     sharedLink,
     onReady,
+    onSwipe,
     copyImage = $bindable(),
     zoomToggle = $bindable(),
   }: Props = $props();
@@ -118,6 +121,7 @@
     width: containerWidth,
     height: containerHeight,
   });
+  let imgContainerElement = $state<HTMLElement | undefined>();
 </script>
 
 <svelte:document
@@ -134,6 +138,14 @@
   class="relative h-full w-full select-none"
   bind:clientWidth={containerWidth}
   bind:clientHeight={containerHeight}
+  use:swipeFeedback={{
+    disabled: isOcrActive || $photoZoomState.currentZoom > 1,
+    onSwipe,
+    leftPreviewUrl: cursor.previousAsset && getAssetUrlForKind(cursor.previousAsset, 'thumbnail'),
+    rightPreviewUrl: cursor.nextAsset && getAssetUrlForKind(cursor.nextAsset, 'thumbnail'),
+    assetId: asset.id,
+    target: imgContainerElement,
+  }}
 >
   <AdaptiveImage
     {asset}
@@ -146,6 +158,7 @@
     onImageReady={() => onReady?.()}
     onError={() => onReady?.()}
     bind:imgElement={$photoViewerImgElement}
+    bind:imgContainerElement
   >
     {#snippet overlays()}
       <!-- eslint-disable-next-line svelte/require-each-key -->

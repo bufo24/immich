@@ -42,6 +42,7 @@ export class AdaptiveImageLoader {
   private readonly currentZoomFn: () => number;
   private readonly onImageReady?: () => void;
   private readonly onError?: () => void;
+  private readonly onSourceUpdate?: (url: string) => void;
   private readonly thumbnailUrl: string;
   private readonly previewUrl: string | undefined;
   private readonly originalUrl: string | undefined;
@@ -56,11 +57,13 @@ export class AdaptiveImageLoader {
       currentZoomFn: () => number;
       onImageReady?: () => void;
       onError?: () => void;
+      onSourceUpdate?: (url: string) => void;
     },
   ) {
     this.currentZoomFn = callbacks.currentZoomFn;
     this.onImageReady = callbacks.onImageReady;
     this.onError = callbacks.onError;
+    this.onSourceUpdate = callbacks.onSourceUpdate;
 
     this.thumbnailUrl = getAssetUrlForKind(asset, 'thumbnail');
     this.previewUrl = getAssetUrl({ asset, sharedLink });
@@ -80,6 +83,7 @@ export class AdaptiveImageLoader {
     this.state.quality = 'thumbnail';
     this.thumbnailImage = ImageStatus.Success;
     this.onImageReady?.();
+    this.onSourceUpdate?.(this.thumbnailUrl);
     this.triggerMainImage();
   }
 
@@ -111,6 +115,7 @@ export class AdaptiveImageLoader {
     this.state.quality = 'preview';
     this.previewImage = ImageStatus.Success;
     this.onImageReady?.();
+    this.onSourceUpdate?.(this.previewUrl!);
   }
 
   onPreviewError() {
@@ -135,6 +140,7 @@ export class AdaptiveImageLoader {
     this.state.quality = 'original';
     this.originalImage = ImageStatus.Success;
     this.onImageReady?.();
+    this.onSourceUpdate?.(this.originalUrl!);
   }
 
   onOriginalError() {

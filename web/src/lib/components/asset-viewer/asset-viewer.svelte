@@ -535,7 +535,13 @@
   <!-- Asset Viewer -->
   <div class="z-[-1] relative col-start-1 col-span-4 row-start-1 row-span-full">
     {#if viewerKind === 'StackPhotoViewer'}
-      <PhotoViewer bind:zoomToggle bind:copyImage cursor={{ ...cursor, current: previewStackedAsset! }} {sharedLink} />
+      <PhotoViewer
+        bind:zoomToggle
+        bind:copyImage
+        cursor={{ ...cursor, current: previewStackedAsset! }}
+        {sharedLink}
+        onSwipe={(direction) => navigateAsset(direction === 'left' ? 'previous' : 'next')}
+      />
     {:else if viewerKind === 'StackVideoViewer'}
       <VideoViewer
         assetId={previewStackedAsset!.id}
@@ -565,7 +571,13 @@
     {:else if viewerKind === 'CropArea'}
       <CropArea {asset} />
     {:else if viewerKind === 'PhotoViewer'}
-      <PhotoViewer bind:zoomToggle bind:copyImage {cursor} {sharedLink} />
+      <PhotoViewer
+        bind:zoomToggle
+        bind:copyImage
+        {cursor}
+        {sharedLink}
+        onSwipe={(direction) => navigateAsset(direction === 'left' ? 'next' : 'previous')}
+      />
     {:else if viewerKind === 'VideoViewer'}
       <VideoViewer
         assetId={asset.id}

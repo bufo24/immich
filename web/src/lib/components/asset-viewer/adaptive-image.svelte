@@ -28,11 +28,14 @@
     onImageReady?: () => void;
     onError?: () => void;
     imgElement?: HTMLImageElement;
+    imgContainerElement?: HTMLElement;
     overlays?: Snippet;
+    onSourceUpdate?: (url: string) => void;
   }
 
   let {
     imgElement = $bindable<HTMLImageElement | undefined>(),
+    imgContainerElement = $bindable<HTMLElement | undefined>(),
     asset,
     sharedLink,
     zoomDisabled = false,
@@ -42,6 +45,7 @@
     slideshowLook,
     onImageReady,
     onError,
+    onSourceUpdate,
     overlays,
   }: Props = $props();
 
@@ -64,6 +68,7 @@
         currentZoomFn: () => $photoZoomState.currentZoom,
         onImageReady,
         onError,
+        onSourceUpdate,
       });
       previousLoader = loader;
       return loader;
@@ -125,6 +130,7 @@
   style:top={renderDimensions.top}
   style:width={renderDimensions.width}
   style:height={renderDimensions.height}
+  bind:this={imgContainerElement}
 >
   {#if asset.thumbhash}
     <!-- Thumbhash / spinner layer  -->
