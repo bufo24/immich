@@ -118,7 +118,7 @@
   const sharedLink = getSharedLink();
 
   const editorDisabled = $derived(
-    isOwner ||
+    !isOwner ||
       asset.type !== AssetTypeEnum.Image ||
       asset.livePhotoVideoId ||
       (asset.exifInfo?.projectionType === ProjectionType.EQUIRECTANGULAR &&
