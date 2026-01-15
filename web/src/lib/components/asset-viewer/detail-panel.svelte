@@ -8,6 +8,7 @@
   import { AppRoute, QueryParameter, timeToLoadTheMap } from '$lib/constants';
   import { assetViewerManager } from '$lib/managers/asset-viewer-manager.svelte';
   import { authManager } from '$lib/managers/auth-manager.svelte';
+  import { eventManager } from '$lib/managers/event-manager.svelte';
   import { featureFlagsManager } from '$lib/managers/feature-flags-manager.svelte';
   import AssetChangeDateModal from '$lib/modals/AssetChangeDateModal.svelte';
   import { isFaceEditMode } from '$lib/stores/face-edit.svelte';
@@ -17,10 +18,17 @@
   import { getAssetThumbnailUrl, getPeopleThumbnailUrl } from '$lib/utils';
   import { delay, getDimensions } from '$lib/utils/asset-utils';
   import { getByteUnitString } from '$lib/utils/byte-units';
+  import { handleError } from '$lib/utils/handle-error';
   import { getMetadataSearchQuery } from '$lib/utils/metadata-search';
   import { fromISODateTime, fromISODateTimeUTC, toTimelineAsset } from '$lib/utils/timeline-util';
   import { getParentPath } from '$lib/utils/tree-utils';
-  import { AssetMediaSize, getAssetInfo, type AlbumResponseDto, type AssetResponseDto } from '@immich/sdk';
+  import {
+    AssetMediaSize,
+    getAllAlbums,
+    getAssetInfo,
+    type AlbumResponseDto,
+    type AssetResponseDto,
+  } from '@immich/sdk';
   import { Icon, IconButton, LoadingSpinner, modalManager } from '@immich/ui';
   import {
     mdiCalendar,
@@ -35,6 +43,7 @@
     mdiPlus,
   } from '@mdi/js';
   import { DateTime } from 'luxon';
+  import { onDestroy, untrack } from 'svelte';
   import { t } from 'svelte-i18n';
   import { slide } from 'svelte/transition';
   import ImageThumbnail from '../assets/thumbnail/image-thumbnail.svelte';
@@ -44,11 +53,10 @@
 
   interface Props {
     asset: AssetResponseDto;
-    albums?: AlbumResponseDto[];
     currentAlbum?: AlbumResponseDto | null;
   }
 
-  let { asset, albums = [], currentAlbum = null }: Props = $props();
+  let { asset, currentAlbum = null }: Props = $props();
 
   let showAssetPath = $state(false);
   let showEditFaces = $state(false);
@@ -74,14 +82,43 @@
   );
   let previousId: string | undefined = $state();
 
+  let albums = $state<AlbumResponseDto[]>([]);
+
+  const refreshAlbums = async () => {
+    if (authManager.isSharedLink) {
+      return;
+    }
+
+    try {
+      albums = await getAllAlbums({ assetId: asset.id });
+    } catch (error) {
+      handleError(error, 'Error getting asset album membership');
+    }
+  };
+
+  eventManager.on('AlbumAddAssets', () => void refreshAlbums());
+  onDestroy(() => {
+    eventManager.off('AlbumAddAssets', () => void refreshAlbums());
+  });
+
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    asset;
+    untrack(() => void refreshAlbums());
+  });
+
   $effect(() => {
     if (!previousId) {
       previousId = asset.id;
+      return;
     }
-    if (asset.id !== previousId) {
-      showEditFaces = false;
-      previousId = asset.id;
+
+    if (asset.id === previousId) {
+      return;
     }
+
+    showEditFaces = false;
+    previousId = asset.id;
   });
 
   const getMegapixel = (width: number, height: number): number | undefined => {

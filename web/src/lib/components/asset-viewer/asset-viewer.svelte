@@ -11,24 +11,24 @@
   import { assetViewerManager } from '$lib/managers/asset-viewer-manager.svelte';
   import { authManager } from '$lib/managers/auth-manager.svelte';
   import { editManager, EditToolType } from '$lib/managers/edit/edit-manager.svelte';
-  import { preloadManager } from '$lib/managers/PreloadManager.svelte';
+  import { eventManager } from '$lib/managers/event-manager.svelte';
+  import { imageManager } from '$lib/managers/ImageManager.svelte';
   import { assetViewingStore } from '$lib/stores/asset-viewing.store';
   import { ocrManager } from '$lib/stores/ocr.svelte';
   import { alwaysLoadOriginalVideo } from '$lib/stores/preferences.store';
   import { SlideshowNavigation, SlideshowState, slideshowStore } from '$lib/stores/slideshow.store';
   import { user } from '$lib/stores/user.store';
-  import { getAssetJobMessage, getAssetUrl, getSharedLink, handlePromiseError } from '$lib/utils';
+  import { getAssetJobMessage, getSharedLink, handlePromiseError } from '$lib/utils';
   import type { OnUndoDelete } from '$lib/utils/actions';
   import { navigateToAsset } from '$lib/utils/asset-utils';
   import { handleError } from '$lib/utils/handle-error';
   import { InvocationTracker } from '$lib/utils/invocationTracker';
   import { SlideshowHistory } from '$lib/utils/slideshow-history';
-  import { preloadImageUrl } from '$lib/utils/sw-messaging';
+
   import { toTimelineAsset } from '$lib/utils/timeline-util';
   import {
     AssetJobName,
     AssetTypeEnum,
-    getAllAlbums,
     getAssetInfo,
     getStack,
     runAssetJobs,
@@ -97,7 +97,6 @@
     stopProgress: stopSlideshowProgress,
     slideshowNavigation,
     slideshowState,
-    slideshowTransition,
   } = slideshowStore;
   const stackThumbnailSize = 60;
   const stackSelectedThumbnailSize = 65;
@@ -105,12 +104,11 @@
   const asset = $derived(cursor.current);
   const nextAsset = $derived(cursor.nextAsset);
   const previousAsset = $derived(cursor.previousAsset);
-  let appearsInAlbums: AlbumResponseDto[] = $state([]);
+
   let sharedLink = getSharedLink();
   let previewStackedAsset: AssetResponseDto | undefined = $state();
   let isShowEditor = $state(false);
   let fullscreenElement = $state<Element>();
-  let unsubscribes: (() => void)[] = [];
   let stack: StackResponseDto | null = $state(null);
 
   let zoomToggle = $state(() => void 0);
@@ -125,74 +123,66 @@
       return;
     }
 
-    if (asset.stack) {
-      stack = await getStack({ id: asset.stack.id });
+    if (!asset.stack) {
+      return;
     }
+
+    stack = await getStack({ id: asset.stack.id });
 
     if (!stack?.assets.some(({ id }) => id === asset.id)) {
       stack = null;
     }
 
     untrack(() => {
-      if (stack && stack?.assets.length > 1) {
-        preloadImageUrl(getAssetUrl({ asset: stack.assets[1] }));
-      }
+      void imageManager.preload(stack?.assets[1], 'thumbnail');
     });
   };
 
   const handleFavorite = async () => {
-    if (album && album.isActivityEnabled) {
-      try {
-        await activityManager.toggleLike();
-      } catch (error) {
-        handleError(error, $t('errors.unable_to_change_favorite'));
-      }
-    }
-  };
-
-  onMount(async () => {
-    unsubscribes.push(
-      slideshowState.subscribe((value) => {
-        if (value === SlideshowState.PlaySlideshow) {
-          slideshowHistory.reset();
-          slideshowHistory.queue(toTimelineAsset(asset));
-          handlePromiseError(handlePlaySlideshow());
-        } else if (value === SlideshowState.StopSlideshow) {
-          handlePromiseError(handleStopSlideshow());
-        }
-      }),
-      slideshowNavigation.subscribe((value) => {
-        if (value === SlideshowNavigation.Shuffle) {
-          slideshowHistory.reset();
-          slideshowHistory.queue(toTimelineAsset(asset));
-        }
-      }),
-    );
-
-    if (!sharedLink) {
-      await handleGetAllAlbums();
-    }
-  });
-
-  onDestroy(() => {
-    for (const unsubscribe of unsubscribes) {
-      unsubscribe();
-    }
-
-    activityManager.reset();
-  });
-
-  const handleGetAllAlbums = async () => {
-    if (authManager.isSharedLink) {
+    if (!album || !album.isActivityEnabled) {
       return;
     }
 
     try {
-      appearsInAlbums = await getAllAlbums({ assetId: asset.id });
+      await activityManager.toggleLike();
     } catch (error) {
-      console.error('Error getting album that asset belong to', error);
+      handleError(error, $t('errors.unable_to_change_favorite'));
     }
   };
+
+  onMount(() => {
+    const slideshowStateUnsubscribe = slideshowState.subscribe((value) => {
+      if (value === SlideshowState.PlaySlideshow) {
+        slideshowHistory.reset();
+        slideshowHistory.queue(toTimelineAsset(asset));
+        handlePromiseError(handlePlaySlideshow());
+      } else if (value === SlideshowState.StopSlideshow) {
+        handlePromiseError(handleStopSlideshow());
+      }
+    });
+
+    const slideshowNavigationUnsubscribe = slideshowNavigation.subscribe((value) => {
+      if (value === SlideshowNavigation.Shuffle) {
+        slideshowHistory.reset();
+        slideshowHistory.queue(toTimelineAsset(asset));
+      }
+    });
+
+    return () => {
+      slideshowStateUnsubscribe();
+      slideshowNavigationUnsubscribe();
+    };
+  });
+
+  onDestroy(() => {
+    activityManager.reset();
+    if (cursor.nextAsset) {
+      imageManager.cancel(cursor.nextAsset, 'all');
+    }
+    if (cursor.previousAsset) {
+      imageManager.cancel(cursor.previousAsset, 'all');
+    }
+  });
 
   const closeViewer = () => {
     onClose?.(asset);
@@ -200,18 +190,47 @@
 
   const closeEditor = async () => {
     if (editManager.hasAppliedEdits) {
-      console.log(asset);
       const refreshedAsset = await getAssetInfo({ id: asset.id });
-      console.log(refreshedAsset);
       onAssetChange?.(refreshedAsset);
       assetViewingStore.setAsset(refreshedAsset);
     }
     isShowEditor = false;
   };
 
-  const tracker = new InvocationTracker();
+  const cancelPreloadsBeforeNavigation = (direction: 'previous' | 'next') => {
+    const assetToCancel = direction === 'next' ? cursor.previousAsset : cursor.nextAsset;
+    if (!assetToCancel) {
+      return;
+    }
 
-  const navigateAsset = (order?: 'previous' | 'next', e?: Event) => {
+    imageManager.cancel(assetToCancel, 'all');
+  };
+
+  const updatePreloadsAfterNavigation = (oldCursor: AssetCursor, newCursor: AssetCursor) => {
+    const movedForward = newCursor.current.id === oldCursor.nextAsset?.id;
+    const movedBackward = newCursor.current.id === oldCursor.previousAsset?.id;
+
+    if (movedForward) {
+      imageManager.cancel(oldCursor.previousAsset, 'all');
+      void imageManager.preload(newCursor.nextAsset, 'thumbnail');
+      return;
+    }
+
+    if (movedBackward) {
+      imageManager.cancel(oldCursor.nextAsset, 'all');
+      void imageManager.preload(newCursor.previousAsset, 'thumbnail');
+      return;
+    }
+
+    // For thoroughness: navigated to non-adjacent asset (e.g., slideshow random)
+    imageManager.cancel(oldCursor.nextAsset, 'all');
+    imageManager.cancel(oldCursor.previousAsset, 'all');
+    void imageManager.preload(newCursor.nextAsset, 'thumbnail');
+    void imageManager.preload(newCursor.previousAsset, 'thumbnail');
+  };
+
+  const tracker = new InvocationTracker();
+  const navigateAsset = (order?: 'previous' | 'next') => {
     if (!order) {
       if ($slideshowState === SlideshowState.PlaySlideshow) {
         order = $slideshowNavigation === SlideshowNavigation.AscendingOrder ? 'previous' : 'next';
@@ -220,11 +239,11 @@
       }
     }
 
-    e?.stopPropagation();
-    preloadManager.cancel(asset);
     if (tracker.isActive()) {
       return;
     }
+
+    cancelPreloadsBeforeNavigation(order);
 
     void tracker.invoke(async () => {
       let hasNext = false;
@@ -243,12 +262,14 @@
           order === 'previous' ? await navigateToAsset(cursor.previousAsset) : await navigateToAsset(cursor.nextAsset);
       }
 
-      if ($slideshowState === SlideshowState.PlaySlideshow) {
-        if (hasNext) {
-          $restartSlideshowProgress = true;
-        } else {
-          await handleStopSlideshow();
-        }
+      if ($slideshowState !== SlideshowState.PlaySlideshow) {
+        return;
+      }
+
+      if (hasNext) {
+        $restartSlideshowProgress = true;
+      } else {
+        await handleStopSlideshow();
       }
     });
   };
@@ -317,7 +338,7 @@
   const handleAction = async (action: Action) => {
     switch (action.type) {
       case AssetAction.ADD_TO_ALBUM: {
-        await handleGetAllAlbums();
+        eventManager.emit('AlbumAddAssets');
         break;
       }
       case AssetAction.REMOVE_ASSET_FROM_STACK: {
@@ -372,21 +393,34 @@
 
   const refresh = async () => {
     await refreshStack();
-    await handleGetAllAlbums();
     ocrManager.clear();
-    if (!sharedLink) {
-      if (previewStackedAsset) {
-        await ocrManager.getAssetOcr(previewStackedAsset.id);
-      }
-      await ocrManager.getAssetOcr(asset.id);
+    if (sharedLink) {
+      return;
     }
+
+    if (previewStackedAsset) {
+      await ocrManager.getAssetOcr(previewStackedAsset.id);
+    }
+    await ocrManager.getAssetOcr(asset.id);
   };
   $effect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     asset;
     untrack(() => handlePromiseError(refresh()));
-    preloadManager.preload(cursor.nextAsset);
-    preloadManager.preload(cursor.previousAsset);
+  });
+
+  let lastCursor = $state<AssetCursor>();
+
+  $effect(() => {
+    if (cursor.current.id === lastCursor?.current.id) {
+      return;
+    }
+
+    if (lastCursor) {
+      // After navigation completes, reconcile preloads with full state information
+      updatePreloadsAfterNavigation(lastCursor, cursor);
+    }
+    lastCursor = cursor;
   });
 
   const onAssetReplace = async ({ oldAssetId, newAssetId }: { oldAssetId: string; newAssetId: string }) => {
@@ -496,15 +530,7 @@
   <!-- Asset Viewer -->
   <div class="z-[-1] relative col-start-1 col-span-4 row-start-1 row-span-full">
     {#if viewerKind === 'StackPhotoViewer'}
-      <PhotoViewer
-        bind:zoomToggle
-        bind:copyImage
-        cursor={{ ...cursor, current: previewStackedAsset! }}
-        onPreviousAsset={() => navigateAsset('previous')}
-        onNextAsset={() => navigateAsset('next')}
-        haveFadeTransition={false}
-        {sharedLink}
-      />
+      <PhotoViewer bind:zoomToggle bind:copyImage cursor={{ ...cursor, current: previewStackedAsset! }} {sharedLink} />
     {:else if viewerKind === 'StackVideoViewer'}
       <VideoViewer
         assetId={previewStackedAsset!.id}
@@ -534,15 +560,7 @@
     {:else if viewerKind === 'CropArea'}
       <CropArea {asset} />
     {:else if viewerKind === 'PhotoViewer'}
-      <PhotoViewer
-        bind:zoomToggle
-        bind:copyImage
-        {cursor}
-        onPreviousAsset={() => navigateAsset('previous')}
-        onNextAsset={() => navigateAsset('next')}
-        {sharedLink}
-        haveFadeTransition={$slideshowState !== SlideshowState.None && $slideshowTransition}
-      />
+      <PhotoViewer bind:zoomToggle bind:copyImage {cursor} {sharedLink} />
     {:else if viewerKind === 'VideoViewer'}
       <VideoViewer
         assetId={asset.id}
@@ -590,7 +608,7 @@
       class="row-start-1 row-span-4 w-90 overflow-y-auto transition-all dark:border-l dark:border-s-immich-dark-gray bg-light"
       translate="yes"
     >
-      <DetailPanel {asset} currentAlbum={album} albums={appearsInAlbums} />
+      <DetailPanel {asset} currentAlbum={album} />
     </div>
   {/if}
 
