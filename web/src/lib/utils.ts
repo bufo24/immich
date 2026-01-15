@@ -31,6 +31,15 @@ import { mdiCogRefreshOutline, mdiDatabaseRefreshOutline, mdiHeadSyncOutline, md
 import { init, register, t } from 'svelte-i18n';
 import { derived, get } from 'svelte/store';
 
+export const ImageKinds = {
+  thumbnail: true,
+  preview: true,
+  fullsize: true,
+  original: true,
+} as const;
+
+export type ImageKind = keyof typeof ImageKinds;
+
 interface DownloadRequestOptions<T = unknown> {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   url: string;
@@ -194,6 +203,23 @@ const createUrl = (path: string, parameters?: Record<string, unknown>) => {
 };
 
 type AssetUrlOptions = { id: string; cacheKey?: string | null; edited?: boolean };
+
+export const getAssetUrlForKind = (asset: AssetResponseDto, kind: ImageKind) => {
+  switch (kind) {
+    case 'preview': {
+      return getAssetThumbnailUrl({ id: asset.id, size: AssetMediaSize.Preview, cacheKey: asset.thumbhash });
+    }
+    case 'thumbnail': {
+      return getAssetThumbnailUrl({ id: asset.id, size: AssetMediaSize.Thumbnail, cacheKey: asset.thumbhash });
+    }
+    case 'fullsize': {
+      return getAssetThumbnailUrl({ id: asset.id, size: AssetMediaSize.Fullsize, cacheKey: asset.thumbhash });
+    }
+    case 'original': {
+      return getAssetOriginalUrl({ id: asset.id, cacheKey: asset.thumbhash });
+    }
+  }
+};
 
 export const getAssetUrl = ({
   asset,

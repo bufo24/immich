@@ -23,7 +23,7 @@
   import { handleError } from '$lib/utils/handle-error';
   import { InvocationTracker } from '$lib/utils/invocationTracker';
   import { SlideshowHistory } from '$lib/utils/slideshow-history';
-  import { preloadImageUrl } from '$lib/utils/sw-messaging';
+  import { prepareImageUrl } from '$lib/utils/sw-messaging';
   import { toTimelineAsset } from '$lib/utils/timeline-util';
   import {
     AssetJobName,
@@ -135,7 +135,7 @@
 
     untrack(() => {
       if (stack && stack?.assets.length > 1) {
-        preloadImageUrl(getAssetUrl({ asset: stack.assets[1] }));
+        void prepareImageUrl(getAssetUrl({ asset: stack.assets[1] }));
       }
     });
   };
@@ -385,8 +385,8 @@
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     asset;
     untrack(() => handlePromiseError(refresh()));
-    preloadManager.preload(cursor.nextAsset);
-    preloadManager.preload(cursor.previousAsset);
+    void preloadManager.preload(cursor.nextAsset);
+    void preloadManager.preload(cursor.previousAsset);
   });
 
   const onAssetReplace = async ({ oldAssetId, newAssetId }: { oldAssetId: string; newAssetId: string }) => {

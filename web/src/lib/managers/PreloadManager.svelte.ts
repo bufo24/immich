@@ -1,21 +1,22 @@
 import { getAssetUrl } from '$lib/utils';
-import { cancelImageUrl, preloadImageUrl } from '$lib/utils/sw-messaging';
-import { AssetTypeEnum, type AssetResponseDto } from '@immich/sdk';
+import { cancelImageUrl, prepareImageUrl } from '$lib/utils/sw-messaging';
+import { type AssetResponseDto } from '@immich/sdk';
 
 class PreloadManager {
-  preload(asset: AssetResponseDto | undefined) {
-    if (globalThis.isSecureContext) {
-      preloadImageUrl(getAssetUrl({ asset }));
+  async preload(asset: AssetResponseDto | undefined) {
+    if (!asset) {
       return;
     }
-    if (!asset || asset.type !== AssetTypeEnum.Image) {
-      return;
-    }
-    const img = new Image();
     const url = getAssetUrl({ asset });
     if (!url) {
       return;
     }
+
+    // Prepare the URL with the service worker for cancellation tracking
+    await prepareImageUrl(url);
+
+    // Create an img element to trigger browser fetch (kept in memory, not added to DOM)
+    const img = new Image();
     img.src = url;
   }
 
