@@ -1,14 +1,31 @@
-const broadcast = new BroadcastChannel('immich');
+import { ServiceWorkerMessenger } from './sw-messenger';
+
+const messenger = new ServiceWorkerMessenger('immich');
+
+let isServiceWorkerEnabled = true;
+
+messenger.onAckTimeout(() => {
+  if (!isServiceWorkerEnabled) {
+    return;
+  }
+  console.error('[ServiceWorker] No communication detected. Auto-disabled service worker.');
+  isServiceWorkerEnabled = false;
+});
+
+const isValidSwContext = (url: string | undefined | null): url is string => {
+  return globalThis.isSecureContext && isServiceWorkerEnabled && !!url;
+};
 
 export function cancelImageUrl(url: string | undefined | null) {
-  if (!url) {
+  if (!isValidSwContext(url)) {
     return;
   }
-  broadcast.postMessage({ type: 'cancel', url });
+  void messenger.send('cancel', { url });
 }
-export function preloadImageUrl(url: string | undefined | null) {
-  if (!url) {
+
+export async function prepareImageUrl(url: string | undefined | null) {
+  if (!isValidSwContext(url)) {
     return;
   }
-  broadcast.postMessage({ type: 'preload', url });
+  await messenger.send('prepare', { url });
 }
