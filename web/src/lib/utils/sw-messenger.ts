@@ -1,5 +1,5 @@
 /**
- * Low-level protocol for communicating with the service worker via BroadcastChannel.
+ * Low-level protocol for communicating with the service worker via postMessage.
  *
  * Protocol:
  * 1. Main thread sends request: { type: string, requestId: string, ...data }
@@ -16,19 +16,20 @@ interface PendingRequest {
 }
 
 export class ServiceWorkerMessenger {
-  readonly #broadcast: BroadcastChannel;
   readonly #pendingRequests = new Map<string, PendingRequest>();
   readonly #ackTimeoutMs: number;
   #requestCounter = 0;
   #onTimeout?: (type: string, data: Record<string, unknown>) => void;
 
-  constructor(channelName: string, ackTimeoutMs = 5000) {
-    this.#broadcast = new BroadcastChannel(channelName);
+  constructor(_channelName: string, ackTimeoutMs = 5000) {
     this.#ackTimeoutMs = ackTimeoutMs;
 
-    this.#broadcast.addEventListener('message', (event) => {
-      this.#handleMessage(event.data);
-    });
+    // Listen for messages from the service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        this.#handleMessage(event.data);
+      });
+    }
   }
 
   #handleMessage(data: unknown) {
@@ -107,7 +108,10 @@ export class ServiceWorkerMessenger {
         ackReceived: false,
       });
 
-      this.#broadcast.postMessage({
+      // Send message to the active service worker
+      // Feature detection is done in constructor and at call sites (sw-messaging.ts:isValidSwContext)
+      // eslint-disable-next-line compat/compat
+      navigator.serviceWorker.controller?.postMessage({
         type,
         requestId,
         ...data,
@@ -135,9 +139,12 @@ export class ServiceWorkerMessenger {
   }
 
   /**
-   * Close the broadcast channel
+   * Clean up pending requests
    */
   close(): void {
-    this.#broadcast.close();
+    for (const pending of this.#pendingRequests.values()) {
+      clearTimeout(pending.ackTimeout);
+    }
+    this.#pendingRequests.clear();
   }
 }

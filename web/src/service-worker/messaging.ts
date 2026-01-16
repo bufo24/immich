@@ -1,10 +1,12 @@
 import { handleCancel, handlePrepare } from './request';
 
+const sw = globalThis as unknown as ServiceWorkerGlobalScope;
+
 /**
  * Send acknowledgment for a request
  */
-function sendAck(broadcast: BroadcastChannel, requestId: string) {
-  broadcast.postMessage({
+function sendAck(client: Client, requestId: string) {
+  client.postMessage({
     type: 'ack',
     requestId,
   });
@@ -13,23 +15,21 @@ function sendAck(broadcast: BroadcastChannel, requestId: string) {
 /**
  * Handle 'prepare' request: prepare SW to track this request for cancelation
  */
-const handlePrepareRequest = (broadcast: BroadcastChannel, url: URL, requestId: string) => {
-  sendAck(broadcast, requestId);
+const handlePrepareRequest = (client: Client, url: URL, requestId: string) => {
+  sendAck(client, requestId);
   handlePrepare(url);
 };
 
 /**
  * Handle 'cancel' request: cancel a pending request
  */
-const handleCancelRequest = (broadcast: BroadcastChannel, url: URL, requestId: string) => {
-  sendAck(broadcast, requestId);
+const handleCancelRequest = (client: Client, url: URL, requestId: string) => {
+  sendAck(client, requestId);
   handleCancel(url);
 };
 
-export const installBroadcastChannelListener = () => {
-  const broadcast = new BroadcastChannel('immich');
-  // eslint-disable-next-line  unicorn/prefer-add-event-listener
-  broadcast.onmessage = (event) => {
+export const installMessageListener = () => {
+  sw.addEventListener('message', (event) => {
     if (!event.data?.requestId) {
       return;
     }
@@ -40,16 +40,21 @@ export const installBroadcastChannelListener = () => {
       return;
     }
 
+    const client = event.source as Client;
+    if (!client) {
+      return;
+    }
+
     switch (event.data.type) {
       case 'prepare': {
-        handlePrepareRequest(broadcast, url, requestId);
+        handlePrepareRequest(client, url, requestId);
         break;
       }
 
       case 'cancel': {
-        handleCancelRequest(broadcast, url, requestId);
+        handleCancelRequest(client, url, requestId);
         break;
       }
     }
-  };
+  });
 };
